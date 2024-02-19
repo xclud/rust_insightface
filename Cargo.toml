@@ -5,6 +5,7 @@ edition = "2021"
 license = "MIT"
 homepage = "https://pwa.ir"
 repository = "https://github.com/xclud/rust_insightface"
+documentation = "https://docs.rs/crate/insightface"
 description = "Crate to work with Insightface's Face Detection and Face Swap models."
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
