@@ -2,15 +2,19 @@ use onnxruntime::{session::Session, tensor::OrtOwnedTensor};
 
 /// Detects faces in the input image.
 /// * `session` ONNX Runtime Session. Must be initialized by `det_10g.onnx` file from `buffalo_l`.
-/// * `image` An array of size `[1, 3, 640, 640]`.
-/// * `score_threshold` Score threshold. Usually set to `0.5`.
-/// * `nms_threshold` Non-maximum suppression threshold. Usually set to `0.4`.
-pub fn detect_faces<'a>(
-    session: &mut Session<'a>,
+/// * `image` An array of size `[n, 3, 640, 640]`.
+/// * `threshold` Score threshold. Usually set to `0.5`.
+pub fn detect_faces(
+    session: &mut Session,
     image: ndarray::prelude::ArrayBase<ndarray::OwnedRepr<f32>, ndarray::prelude::Dim<[usize; 4]>>,
-    score_threshold: f32,
-    nms_threshold: f32,
+    threshold: f32,
 ) -> Vec<Face> {
+    let dim = image.dim();
+    if dim.1 != 3 || dim.2 != 640 || dim.3 != 640 {
+        //
+        panic!("Dimenstion should be [n, 3, 640, 640]");
+    }
+
     // Multiple inputs and outputs are possible
     let input_tensor = vec![image];
     let net_outs: Vec<OrtOwnedTensor<f32, _>> = session.run(input_tensor).unwrap();
@@ -37,7 +41,7 @@ pub fn detect_faces<'a>(
 
     for index in 0..12800 {
         let score = scores08[[index, 0]];
-        if score > score_threshold {
+        if score > threshold {
             let bbox = distance2bbox(index, 8, bboxes08);
             box08.push(bbox);
 
@@ -54,7 +58,7 @@ pub fn detect_faces<'a>(
 
     for index in 0..3200 {
         let score = scores16[[index, 0]];
-        if score > score_threshold {
+        if score > threshold {
             let bbox = distance2bbox(index, 16, bboxes16);
             box16.push(bbox);
 
@@ -71,7 +75,7 @@ pub fn detect_faces<'a>(
 
     for index in 0..800 {
         let score = scores32[[index, 0]];
-        if score > score_threshold {
+        if score > threshold {
             let bbox = distance2bbox(index, 32, bboxes32);
             box32.push(bbox);
 
@@ -88,9 +92,7 @@ pub fn detect_faces<'a>(
 
     result.sort_by(|a, b| (b.score.partial_cmp(&a.score).unwrap()));
 
-    let faces = nms(result, nms_threshold);
-
-    return faces;
+    return result;
 }
 
 fn distance2bbox(
@@ -138,7 +140,12 @@ fn distance2kps(
     return [(x1, y1), (x2, y2), (x3, y3), (x4, y4), (x5, y5)];
 }
 
-fn nms(mut input: Vec<Face>, threshold: f32) -> Vec<Face> {
+/// a post-processing technique used in object detection to eliminate duplicate detections and select
+/// the most relevant detected objects. This helps reduce false positives and the computational
+/// complexity of a detection algorithm.
+///
+/// `threshold` usually set to `0.4`
+pub fn non_maximum_suppression(mut input: Vec<Face>, threshold: f32) -> Vec<Face> {
     let mut keep: Vec<Face> = vec![];
 
     while input.len() > 1 {
@@ -189,6 +196,28 @@ fn nms(mut input: Vec<Face>, threshold: f32) -> Vec<Face> {
     }
 
     return keep;
+}
+
+/// Calulates the embedding of the input image.
+/// * `session` ONNX Runtime Session. Must be initialized by `w600k_r50.onnx` file from `buffalo_l`.
+/// * `image` An array of size `[n, 3, 112, 112]`.
+pub fn calculate_embedding(
+    session: &mut Session,
+    image: ndarray::prelude::ArrayBase<ndarray::OwnedRepr<f32>, ndarray::prelude::Dim<[usize; 4]>>,
+) -> [f32; 512] {
+    let dim = image.dim();
+    if dim.1 != 3 || dim.2 != 112 || dim.3 != 112 {
+        //
+        panic!("Dimenstion should be [n, 3, 112, 112]");
+    }
+
+    let inputs = vec![image];
+    let outputs: Vec<OrtOwnedTensor<f32, _>> = session.run(inputs).unwrap();
+
+    let embedding = &outputs[0];
+
+    let slice = unsafe { std::slice::from_raw_parts::<f32>(embedding.as_ptr(), 512) };
+    return slice.try_into().unwrap();
 }
 
 #[derive(Debug, Clone, Copy)]
