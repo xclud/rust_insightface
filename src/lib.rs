@@ -16,37 +16,26 @@ pub fn detect_faces(
     }
 
     // Multiple inputs and outputs are possible
-    let input_tensor = vec![image];
-    let net_outs: Vec<OrtOwnedTensor<f32, _>> = session.run(input_tensor).unwrap();
-
-    let mut box08: Vec<(f32, f32, f32, f32)> = vec![];
-    let mut box16: Vec<(f32, f32, f32, f32)> = vec![];
-    let mut box32: Vec<(f32, f32, f32, f32)> = vec![];
-
-    let mut kps08: Vec<[(f32, f32); 5]> = vec![];
-    let mut kps16: Vec<[(f32, f32); 5]> = vec![];
-    let mut kps32: Vec<[(f32, f32); 5]> = vec![];
+    let inputs = vec![image];
+    let outputs = session.run(inputs).unwrap();
 
     let mut result: Vec<Face> = vec![];
 
-    let scores08 = &net_outs[0];
-    let scores16 = &net_outs[1];
-    let scores32 = &net_outs[2];
-    let bboxes08 = &net_outs[3];
-    let bboxes16 = &net_outs[4];
-    let bboxes32 = &net_outs[5];
-    let kpsses08 = &net_outs[6];
-    let kpsses16 = &net_outs[7];
-    let kpsses32 = &net_outs[8];
+    let scores08 = &outputs[0];
+    let scores16 = &outputs[1];
+    let scores32 = &outputs[2];
+    let bboxes08 = &outputs[3];
+    let bboxes16 = &outputs[4];
+    let bboxes32 = &outputs[5];
+    let kpsses08 = &outputs[6];
+    let kpsses16 = &outputs[7];
+    let kpsses32 = &outputs[8];
 
     for index in 0..12800 {
         let score = scores08[[index, 0]];
         if score > threshold {
             let bbox = distance2bbox(index, 8, bboxes08);
-            box08.push(bbox);
-
             let keypoints = distance2kps(index, 8, kpsses08);
-            kps08.push(keypoints);
 
             result.push(Face {
                 score,
@@ -60,10 +49,7 @@ pub fn detect_faces(
         let score = scores16[[index, 0]];
         if score > threshold {
             let bbox = distance2bbox(index, 16, bboxes16);
-            box16.push(bbox);
-
             let keypoints = distance2kps(index, 16, kpsses16);
-            kps16.push(keypoints);
 
             result.push(Face {
                 score,
@@ -77,10 +63,7 @@ pub fn detect_faces(
         let score = scores32[[index, 0]];
         if score > threshold {
             let bbox = distance2bbox(index, 32, bboxes32);
-            box32.push(bbox);
-
             let keypoints = distance2kps(index, 32, kpsses32);
-            kps32.push(keypoints);
 
             result.push(Face {
                 score,
@@ -212,7 +195,7 @@ pub fn calculate_embedding(
     }
 
     let inputs = vec![image];
-    let outputs: Vec<OrtOwnedTensor<f32, _>> = session.run(inputs).unwrap();
+    let outputs = session.run(inputs).unwrap();
 
     let embedding = &outputs[0];
 
