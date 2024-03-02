@@ -13,8 +13,8 @@ keywords = ["insightface"]
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-onnxruntime = "0.0.14"
-ndarray = "0.15.1"
-
-[dev-dependencies]
-image = "0.24.7"
+ort = { git = "https://github.com/pykeio/ort.git" }
+ndarray = "^0.15.6"
+nalgebra = "^0.32.4"
+image = "^0.24.9"
+aikit = "^0.0.2"
