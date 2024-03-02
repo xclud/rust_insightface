@@ -1,12 +1,17 @@
-use onnxruntime::{session::Session, tensor::OrtOwnedTensor};
+use std::ops::Mul;
+
+use aikit::{umeyama, warp_into};
+use image::Rgba32FImage;
+use nalgebra::Matrix3;
+use ort::{inputs, Session};
 
 /// Detects faces in the input image.
 /// * `session` ONNX Runtime Session. Must be initialized by `det_10g.onnx` file from `buffalo_l`.
 /// * `image` An array of size `[n, 3, 640, 640]`.
 /// * `threshold` Score threshold. Usually set to `0.5`.
 pub fn detect_faces(
-    session: &mut Session,
-    image: ndarray::prelude::ArrayBase<ndarray::OwnedRepr<f32>, ndarray::prelude::Dim<[usize; 4]>>,
+    model: &Session,
+    image: ndarray::Array<f32, ndarray::Dim<[usize; 4]>>,
     threshold: f32,
 ) -> Vec<Face> {
     let dim = image.dim();
@@ -15,21 +20,19 @@ pub fn detect_faces(
         panic!("Dimenstion should be [n, 3, 640, 640]");
     }
 
-    // Multiple inputs and outputs are possible
-    let inputs = vec![image];
-    let outputs = session.run(inputs).unwrap();
+    let outputs = model.run(inputs![image].unwrap()).unwrap();
 
     let mut result: Vec<Face> = vec![];
 
-    let scores08 = &outputs[0];
-    let scores16 = &outputs[1];
-    let scores32 = &outputs[2];
-    let bboxes08 = &outputs[3];
-    let bboxes16 = &outputs[4];
-    let bboxes32 = &outputs[5];
-    let kpsses08 = &outputs[6];
-    let kpsses16 = &outputs[7];
-    let kpsses32 = &outputs[8];
+    let scores08 = &outputs[0].extract_tensor().unwrap();
+    let scores16 = &outputs[1].extract_tensor().unwrap();
+    let scores32 = &outputs[2].extract_tensor().unwrap();
+    let bboxes08 = &outputs[3].extract_tensor().unwrap();
+    let bboxes16 = &outputs[4].extract_tensor().unwrap();
+    let bboxes32 = &outputs[5].extract_tensor().unwrap();
+    let kpsses08 = &outputs[6].extract_tensor().unwrap();
+    let kpsses16 = &outputs[7].extract_tensor().unwrap();
+    let kpsses32 = &outputs[8].extract_tensor().unwrap();
 
     for index in 0..12800 {
         let score = scores08[[index, 0]];
@@ -81,7 +84,10 @@ pub fn detect_faces(
 fn distance2bbox(
     index: usize,
     stride: usize,
-    distance: &OrtOwnedTensor<'_, '_, f32, ndarray::prelude::Dim<ndarray::IxDynImpl>>,
+    distance: &ndarray::prelude::ArrayBase<
+        ndarray::ViewRepr<&f32>,
+        ndarray::prelude::Dim<ndarray::IxDynImpl>,
+    >,
 ) -> (f32, f32, f32, f32) {
     let m = 640 / stride;
     let x = ((index / 2) * stride) % 640;
@@ -99,7 +105,10 @@ fn distance2bbox(
 fn distance2kps(
     index: usize,
     stride: usize,
-    distance: &OrtOwnedTensor<'_, '_, f32, ndarray::prelude::Dim<ndarray::IxDynImpl>>,
+    distance: &ndarray::prelude::ArrayBase<
+        ndarray::ViewRepr<&f32>,
+        ndarray::prelude::Dim<ndarray::IxDynImpl>,
+    >,
 ) -> [(f32, f32); 5] {
     let m = 640 / stride;
     let x = ((index / 2) * stride) % 640;
@@ -185,22 +194,65 @@ pub fn non_maximum_suppression(mut input: Vec<Face>, threshold: f32) -> Vec<Face
 /// * `session` ONNX Runtime Session. Must be initialized by `w600k_r50.onnx` file from `buffalo_l`.
 /// * `image` An array of size `[n, 3, 112, 112]`.
 pub fn calculate_embedding(
-    session: &mut Session,
-    image: ndarray::prelude::ArrayBase<ndarray::OwnedRepr<f32>, ndarray::prelude::Dim<[usize; 4]>>,
+    session: &Session,
+    image: ndarray::Array<f32, ndarray::Dim<[usize; 4]>>,
 ) -> [f32; 512] {
     let dim = image.dim();
     if dim.1 != 3 || dim.2 != 112 || dim.3 != 112 {
-        //
         panic!("Dimenstion should be [n, 3, 112, 112]");
     }
 
-    let inputs = vec![image];
-    let outputs = session.run(inputs).unwrap();
+    let outputs = session.run(inputs![image].unwrap()).unwrap();
 
     let embedding = &outputs[0];
 
-    let slice = unsafe { std::slice::from_raw_parts::<f32>(embedding.as_ptr(), 512) };
+    let slice = unsafe {
+        std::slice::from_raw_parts::<f32>(embedding.extract_tensor().unwrap().as_ptr(), 512)
+    };
     return slice.try_into().unwrap();
+}
+
+pub fn swap_face(
+    session: &ort::Session,
+    target: ndarray::Array<f32, ndarray::Dim<[usize; 4]>>,
+    source: &[f32; 512],
+) -> ndarray::Array4<f32> {
+    let dim = target.dim();
+    if dim.1 != 3 || dim.2 != 128 || dim.3 != 128 {
+        panic!("Dimenstion should be [n, 3, 128, 128]");
+    }
+
+    let src = ndarray::Array2::from_shape_vec((1, 512), Vec::<f32>::from(source)).unwrap();
+
+    //println!("SRC: {:#?}", src);
+
+    let outputs = session.run(inputs![target, src].unwrap()).unwrap();
+
+    let result = &outputs[0];
+
+    let slice = unsafe {
+        std::slice::from_raw_parts::<f32>(
+            result.extract_tensor().unwrap().as_ptr(),
+            dim.0 * 3 * 128 * 128,
+        )
+    };
+
+    return ndarray::Array4::from_shape_vec((1, 3, 128, 128), slice.to_vec()).unwrap();
+}
+
+pub fn crop_face(image: &Rgba32FImage, keypoints: &[(f32, f32); 5], size: u32) -> Rgba32FImage {
+    let m = umeyama(&keypoints, &ARCFACE_DST);
+
+    let mut output = Rgba32FImage::new(size, size);
+    warp_into(image, m, &mut output);
+
+    output
+}
+
+pub fn estimate_norm(keypoints: &[(f32, f32); 5]) -> Matrix3<f32> {
+    let m = umeyama(&keypoints, &ARCFACE_DST);
+
+    m
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -208,6 +260,44 @@ pub struct Face {
     pub score: f32,
     pub bbox: (f32, f32, f32, f32),
     pub keypoints: [(f32, f32); 5],
+}
+
+impl Mul<f32> for Face {
+    type Output = Face;
+
+    fn mul(self, rhs: f32) -> Self::Output {
+        let face = Face {
+            score: self.score,
+            bbox: (
+                self.bbox.0 * rhs,
+                self.bbox.1 * rhs,
+                self.bbox.2 * rhs,
+                self.bbox.3 * rhs,
+            ),
+            keypoints: self.keypoints.map(|v| (v.0 * rhs, v.1 * rhs)),
+        };
+
+        face
+    }
+}
+
+impl Mul<i32> for Face {
+    type Output = Face;
+
+    fn mul(self, rhs: i32) -> Self::Output {
+        let face = Face {
+            score: self.score,
+            bbox: (
+                self.bbox.0 * rhs as f32,
+                self.bbox.1 * rhs as f32,
+                self.bbox.2 * rhs as f32,
+                self.bbox.3 * rhs as f32,
+            ),
+            keypoints: self.keypoints.map(|v| (v.0 * rhs as f32, v.1 * rhs as f32)),
+        };
+
+        face
+    }
 }
 
 #[cfg(test)]
@@ -220,3 +310,11 @@ mod tests {
         assert_eq!(result, 4);
     }
 }
+
+const ARCFACE_DST: [(f32, f32); 5] = [
+    (38.2946, 51.6963),
+    (73.5318, 51.5014),
+    (56.0252, 71.7366),
+    (41.5493, 92.3655),
+    (70.7299, 92.2041),
+];
