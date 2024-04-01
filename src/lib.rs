@@ -24,15 +24,15 @@ pub fn detect_faces(
 
     let mut result: Vec<Face> = vec![];
 
-    let scores08 = &outputs[0].extract_tensor().unwrap();
-    let scores16 = &outputs[1].extract_tensor().unwrap();
-    let scores32 = &outputs[2].extract_tensor().unwrap();
-    let bboxes08 = &outputs[3].extract_tensor().unwrap();
-    let bboxes16 = &outputs[4].extract_tensor().unwrap();
-    let bboxes32 = &outputs[5].extract_tensor().unwrap();
-    let kpsses08 = &outputs[6].extract_tensor().unwrap();
-    let kpsses16 = &outputs[7].extract_tensor().unwrap();
-    let kpsses32 = &outputs[8].extract_tensor().unwrap();
+    let scores08 = &outputs[0].try_extract_tensor().unwrap();
+    let scores16 = &outputs[1].try_extract_tensor().unwrap();
+    let scores32 = &outputs[2].try_extract_tensor().unwrap();
+    let bboxes08 = &outputs[3].try_extract_tensor().unwrap();
+    let bboxes16 = &outputs[4].try_extract_tensor().unwrap();
+    let bboxes32 = &outputs[5].try_extract_tensor().unwrap();
+    let kpsses08 = &outputs[6].try_extract_tensor().unwrap();
+    let kpsses16 = &outputs[7].try_extract_tensor().unwrap();
+    let kpsses32 = &outputs[8].try_extract_tensor().unwrap();
 
     for index in 0..12800 {
         let score = scores08[[index, 0]];
@@ -204,12 +204,9 @@ pub fn calculate_embedding(
 
     let outputs = session.run(inputs![image].unwrap()).unwrap();
 
-    let embedding = &outputs[0];
+    let embedding = outputs[0].try_extract_tensor().unwrap();
 
-    let slice = unsafe {
-        std::slice::from_raw_parts::<f32>(embedding.extract_tensor().unwrap().as_ptr(), 512)
-    };
-    return slice.try_into().unwrap();
+    return embedding.as_slice().unwrap().try_into().unwrap();
 }
 
 pub fn swap_face(
@@ -228,16 +225,9 @@ pub fn swap_face(
 
     let outputs = session.run(inputs![target, src].unwrap()).unwrap();
 
-    let result = &outputs[0];
+    let result = outputs[0].try_extract_tensor().unwrap();
 
-    let slice = unsafe {
-        std::slice::from_raw_parts::<f32>(
-            result.extract_tensor().unwrap().as_ptr(),
-            dim.0 * 3 * 128 * 128,
-        )
-    };
-
-    return ndarray::Array4::from_shape_vec((1, 3, 128, 128), slice.to_vec()).unwrap();
+    return result.to_shape((dim.0, 3, 128, 128)).unwrap().into_owned();
 }
 
 pub fn crop_face(image: &Rgba32FImage, keypoints: &[(f32, f32); 5], size: u32) -> Rgba32FImage {
