@@ -14,7 +14,7 @@ keywords = ["insightface"]
 
 [dependencies]
 ort = {git="https://github.com/pykeio/ort/", default-features = false, features = ["std", "ndarray",  "download-binaries", "tls-rustls"] }
-ndarray = "0.16"
+ndarray = "^0.16"
 image = "^0.24.9"
-aikit = "^0.0.2"
+aikit = "^0.0.3"
 nalgebra = "^0.32.4"
