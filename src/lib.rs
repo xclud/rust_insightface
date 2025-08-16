@@ -3,42 +3,94 @@ use std::ops::Mul;
 use aikit::{umeyama, warp_into};
 use image::Rgba32FImage;
 use nalgebra::Matrix3;
-use ort::{inputs, Session};
+use ort::{inputs, session::Session, value::Value};
 
 /// Detects faces in the input image.
 /// * `session` ONNX Runtime Session. Must be initialized by `det_10g.onnx` file from `buffalo_l`.
 /// * `image` An array of size `[n, 3, 640, 640]`.
 /// * `threshold` Score threshold. Usually set to `0.5`.
 pub fn detect_faces(
-    model: &Session,
+    model: &mut Session,
     image: ndarray::Array<f32, ndarray::Dim<[usize; 4]>>,
     threshold: f32,
 ) -> Vec<Face> {
     let dim = image.dim();
     if dim.1 != 3 || dim.2 != 640 || dim.3 != 640 {
         //
-        panic!("Dimenstion should be [n, 3, 640, 640]");
+        panic!("Dimension should be [n, 3, 640, 640]");
     }
 
-    let outputs = model.run(inputs![image].unwrap()).unwrap();
+    let input_value = Value::from_array(image).unwrap();
+    let outputs = model.run(inputs![input_value]).unwrap();
 
     let mut result: Vec<Face> = vec![];
 
-    let scores08 = &outputs[0].try_extract_tensor().unwrap();
-    let scores16 = &outputs[1].try_extract_tensor().unwrap();
-    let scores32 = &outputs[2].try_extract_tensor().unwrap();
-    let bboxes08 = &outputs[3].try_extract_tensor().unwrap();
-    let bboxes16 = &outputs[4].try_extract_tensor().unwrap();
-    let bboxes32 = &outputs[5].try_extract_tensor().unwrap();
-    let kpsses08 = &outputs[6].try_extract_tensor().unwrap();
-    let kpsses16 = &outputs[7].try_extract_tensor().unwrap();
-    let kpsses32 = &outputs[8].try_extract_tensor().unwrap();
+    let (shape08, data08) = outputs[0].try_extract_tensor().unwrap();
+    let scores08 =
+        ndarray::ArrayView2::from_shape((shape08[0] as usize, shape08[1] as usize), data08)
+            .unwrap();
+
+    let (shape16, data16) = outputs[1].try_extract_tensor().unwrap();
+    let scores16 =
+        ndarray::ArrayView2::from_shape((shape16[0] as usize, shape16[1] as usize), data16)
+            .unwrap();
+
+    let (shape32, data32) = outputs[2].try_extract_tensor().unwrap();
+    let scores32 =
+        ndarray::ArrayView2::from_shape((shape32[0] as usize, shape32[1] as usize), data32)
+            .unwrap();
+
+    let (shape08, data08) = &outputs[3].try_extract_tensor().unwrap();
+    let bboxes08 =
+        ndarray::ArrayView2::from_shape((shape08[0] as usize, shape08[1] as usize), data08)
+            .unwrap()
+            .into_dyn();
+
+    let (shapebboxes16, databboxes16) = &outputs[4].try_extract_tensor().unwrap();
+    let bboxes16 = ndarray::ArrayView2::from_shape(
+        (shapebboxes16[0] as usize, shapebboxes16[1] as usize),
+        databboxes16,
+    )
+    .unwrap()
+    .into_dyn();
+
+    let (shapebboxes32, databboxes32) = &outputs[5].try_extract_tensor().unwrap();
+    let bboxes32 = ndarray::ArrayView2::from_shape(
+        (shapebboxes32[0] as usize, shapebboxes32[1] as usize),
+        databboxes32,
+    )
+    .unwrap()
+    .into_dyn();
+
+    let (shapekpsses08, datakpsess08) = &outputs[6].try_extract_tensor().unwrap();
+    let kpsses08 = ndarray::ArrayView2::from_shape(
+        (shapekpsses08[0] as usize, shapekpsses08[1] as usize),
+        datakpsess08,
+    )
+    .unwrap()
+    .into_dyn();
+
+    let (shapekpsses16, datakpsess16) = &outputs[7].try_extract_tensor().unwrap();
+    let kpsses16 = ndarray::ArrayView2::from_shape(
+        (shapekpsses16[0] as usize, shapekpsses16[1] as usize),
+        datakpsess16,
+    )
+    .unwrap()
+    .into_dyn();
+
+    let (shapekpsses32, datakpsess32) = &outputs[8].try_extract_tensor().unwrap();
+    let kpsses32 = ndarray::ArrayView2::from_shape(
+        (shapekpsses32[0] as usize, shapekpsses32[1] as usize),
+        datakpsess32,
+    )
+    .unwrap()
+    .into_dyn();
 
     for index in 0..12800 {
         let score = scores08[[index, 0]];
         if score > threshold {
-            let bbox = distance2bbox(index, 8, bboxes08);
-            let keypoints = distance2kps(index, 8, kpsses08);
+            let bbox = distance2bbox(index, 8, &bboxes08);
+            let keypoints = distance2kps(index, 8, &kpsses08);
 
             result.push(Face {
                 score,
@@ -51,8 +103,8 @@ pub fn detect_faces(
     for index in 0..3200 {
         let score = scores16[[index, 0]];
         if score > threshold {
-            let bbox = distance2bbox(index, 16, bboxes16);
-            let keypoints = distance2kps(index, 16, kpsses16);
+            let bbox = distance2bbox(index, 16, &bboxes16);
+            let keypoints = distance2kps(index, 16, &kpsses16);
 
             result.push(Face {
                 score,
@@ -65,8 +117,8 @@ pub fn detect_faces(
     for index in 0..800 {
         let score = scores32[[index, 0]];
         if score > threshold {
-            let bbox = distance2bbox(index, 32, bboxes32);
-            let keypoints = distance2kps(index, 32, kpsses32);
+            let bbox = distance2bbox(index, 32, &bboxes32);
+            let keypoints = distance2kps(index, 32, &kpsses32);
 
             result.push(Face {
                 score,
@@ -194,42 +246,49 @@ pub fn non_maximum_suppression(mut input: Vec<Face>, threshold: f32) -> Vec<Face
 /// * `session` ONNX Runtime Session. Must be initialized by `w600k_r50.onnx` file from `buffalo_l`.
 /// * `image` An array of size `[n, 3, 112, 112]`.
 pub fn calculate_embedding(
-    session: &Session,
+    session: &mut Session,
     image: ndarray::Array<f32, ndarray::Dim<[usize; 4]>>,
 ) -> [f32; 512] {
     let dim = image.dim();
     if dim.1 != 3 || dim.2 != 112 || dim.3 != 112 {
-        panic!("Dimenstion should be [n, 3, 112, 112]");
+        panic!("Dimension should be [n, 3, 112, 112]");
     }
 
-    let outputs = session.run(inputs![image].unwrap()).unwrap();
+    let input_value = Value::from_array(image).unwrap();
+    let outputs = session.run(inputs![input_value]).unwrap();
 
-    let embedding = outputs[0].try_extract_tensor().unwrap();
+    let embedding = &outputs[0];
 
-    return embedding.as_slice().unwrap().try_into().unwrap();
+    let (_, data) = embedding.try_extract_tensor().unwrap();
+    let ptr = data.as_ptr();
+
+    let slice = unsafe { std::slice::from_raw_parts::<f32>(ptr, 512) };
+    return slice.try_into().unwrap();
 }
 
 pub fn swap_face(
-    session: &ort::Session,
+    session: &mut ort::session::Session,
     target: ndarray::Array<f32, ndarray::Dim<[usize; 4]>>,
     source: &[f32; 512],
 ) -> ndarray::Array4<f32> {
-    let dim = target.dim();
-    if dim.1 != 3 || dim.2 != 128 || dim.3 != 128 {
-        panic!("Dimenstion should be [n, 3, 128, 128]");
-    }
-
     let src = ndarray::Array2::from_shape_vec((1, 512), Vec::<f32>::from(source)).unwrap();
 
     //println!("SRC: {:#?}", src);
+    let input_value = Value::from_array(target).unwrap();
+    let src = Value::from_array(src).unwrap();
 
-    let outputs = session.run(inputs![target, src].unwrap()).unwrap();
+    let outputs = session.run(inputs![input_value, src]).unwrap();
 
-    let result = outputs[0].try_extract_tensor().unwrap();
+    let (shaperesult, dataresult) = &outputs[0].try_extract_tensor().unwrap();
+    let result = ndarray::ArrayView2::from_shape(
+        (shaperesult[0] as usize, shaperesult[1] as usize),
+        dataresult,
+    )
+    .unwrap()
+    .into_dyn();
 
-    return result.to_shape((dim.0, 3, 128, 128)).unwrap().into_owned();
+    result.to_shape((dim.0, 3, 128, 128)).unwrap().into_owned()
 }
-
 pub fn crop_face(image: &Rgba32FImage, keypoints: &[(f32, f32); 5], size: u32) -> Rgba32FImage {
     let m = umeyama(&keypoints, &ARCFACE_DST);
 
