@@ -1,8 +1,6 @@
-use std::time::Instant;
-
+use image::imageops::FilterType;
 use image::Rgb;
 use image::RgbImage;
-
 use image::Rgba32FImage;
 use insightface::calculate_embedding;
 use insightface::crop_face;
@@ -10,19 +8,18 @@ use insightface::detect_faces;
 use insightface::non_maximum_suppression;
 use insightface::swap_face;
 use ndarray::Array;
-use ort::GraphOptimizationLevel;
-use ort::Session;
+use ort::session::builder::GraphOptimizationLevel;
+use ort::session::Session;
+use std::time::Instant;
 
 pub fn read_rgba32f(image_path: &str) -> Rgba32FImage {
     let image = image::open(image_path).unwrap().to_rgba32f();
-
-    return image;
+    image::imageops::resize(&image, 640, 640, FilterType::CatmullRom)
 }
 
 pub fn read_rgb8(image_path: &str) -> RgbImage {
     let image = image::open(image_path).unwrap().to_rgb8();
-
-    return image;
+    image::imageops::resize(&image, 640, 640, FilterType::CatmullRom)
 }
 
 fn to_tensor(image: &Rgba32FImage) -> ndarray::Array<f32, ndarray::Dim<[usize; 4]>> {
@@ -71,7 +68,7 @@ fn main() {
 
     let input = to_tensor(&img_640);
 
-    let det_10g = Session::builder()
+    let mut det_10g = Session::builder()
         .unwrap()
         .with_optimization_level(GraphOptimizationLevel::Level1)
         .unwrap()
@@ -80,10 +77,10 @@ fn main() {
         .commit_from_file("det_10g.onnx")
         .unwrap();
 
-    let faces = detect_faces(&det_10g, input, 0.5);
+    let faces = detect_faces(&mut det_10g, input, 0.5);
     let faces = non_maximum_suppression(faces, 0.4);
 
-    let w600k_r50 = Session::builder()
+    let mut w600k_r50 = Session::builder()
         .unwrap()
         .with_optimization_level(GraphOptimizationLevel::Level1)
         .unwrap()
@@ -92,7 +89,7 @@ fn main() {
         .commit_from_file("w600k_r50.onnx")
         .unwrap();
 
-    let inswapper_128 = Session::builder()
+    let mut inswapper_128 = Session::builder()
         .unwrap()
         .with_optimization_level(GraphOptimizationLevel::Level1)
         .unwrap()
@@ -107,9 +104,9 @@ fn main() {
         let face_crop = crop_face(&img_org, &f.keypoints, 112);
         let target_face = crop_face(&img_org, &f.keypoints, 128);
 
-        let embedding = calculate_embedding(&w600k_r50, to_tensor(&face_crop));
+        let embedding = calculate_embedding(&mut w600k_r50, to_tensor(&face_crop));
 
-        let fake = swap_face(&inswapper_128, to_tensor(&target_face), &embedding);
+        let fake = swap_face(&mut inswapper_128, to_tensor(&target_face), &embedding);
         //println!("Emb: {:#?}", embedding);
 
         println!("Fake: {:#?}", fake.dim());
