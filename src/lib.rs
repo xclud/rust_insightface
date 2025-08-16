@@ -3,11 +3,7 @@ use std::ops::Mul;
 use aikit::{umeyama, warp_into};
 use image::Rgba32FImage;
 use nalgebra::Matrix3;
-use ort::{
-    inputs,
-    session::{self, Session},
-    value::Value,
-};
+use ort::{inputs, session::Session, value::Value};
 
 /// Detects faces in the input image.
 /// * `session` ONNX Runtime Session. Must be initialized by `det_10g.onnx` file from `buffalo_l`.
@@ -21,7 +17,7 @@ pub fn detect_faces(
     let dim = image.dim();
     if dim.1 != 3 || dim.2 != 640 || dim.3 != 640 {
         //
-        panic!("Dimenstion should be [n, 3, 640, 640]");
+        panic!("Dimension should be [n, 3, 640, 640]");
     }
 
     let input_value = Value::from_array(image).unwrap();
@@ -275,11 +271,6 @@ pub fn swap_face(
     target: ndarray::Array<f32, ndarray::Dim<[usize; 4]>>,
     source: &[f32; 512],
 ) -> ndarray::Array4<f32> {
-    let dim = target.dim();
-    if dim.1 != 3 || dim.2 != 128 || dim.3 != 128 {
-        panic!("Dimenstion should be [n, 3, 128, 128]");
-    }
-
     let src = ndarray::Array2::from_shape_vec((1, 512), Vec::<f32>::from(source)).unwrap();
 
     //println!("SRC: {:#?}", src);
@@ -298,7 +289,6 @@ pub fn swap_face(
 
     result.to_shape((dim.0, 3, 128, 128)).unwrap().into_owned()
 }
-
 pub fn crop_face(image: &Rgba32FImage, keypoints: &[(f32, f32); 5], size: u32) -> Rgba32FImage {
     let m = umeyama(&keypoints, &ARCFACE_DST);
 
