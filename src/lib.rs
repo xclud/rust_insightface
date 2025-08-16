@@ -271,6 +271,10 @@ pub fn swap_face(
     target: ndarray::Array<f32, ndarray::Dim<[usize; 4]>>,
     source: &[f32; 512],
 ) -> ndarray::Array4<f32> {
+    let dim = target.dim();
+    if dim.1 != 3 || dim.2 != 128 || dim.3 != 128 {
+        panic!("Dimenstion should be [n, 3, 128, 128]");
+    }
     let src = ndarray::Array2::from_shape_vec((1, 512), Vec::<f32>::from(source)).unwrap();
 
     //println!("SRC: {:#?}", src);
