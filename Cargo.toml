@@ -1,6 +1,6 @@
 [package]
 name = "insightface"
-version = "0.0.2"
+version = "0.0.3"
 edition = "2021"
 license = "MIT"
 homepage = "https://pwa.ir"
@@ -13,8 +13,8 @@ keywords = ["insightface"]
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-ort = "2.0.0-rc.1"
-ndarray = "^0.15.6"
-nalgebra = "^0.32.4"
-image = { version = "^0.25.1", default-features = false }
+ort = "2.0.0-rc.10"
+ndarray = "^0.16.1"
+nalgebra = "^0.34.0"
+image = "^0.25.6"
 aikit = "^0.0.3"
